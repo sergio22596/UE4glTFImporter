@@ -1,0 +1,24 @@
+{
+  "FileVersion": 3,
+  "Version": 1,
+  "VersionName": "0.1",
+  "FriendlyName": "UE4glTFImporter",
+  "Description": "glTF importer for UE4",
+  "Category": "Other",
+  "CreatedBy": "Sergio Almajano",
+  "CreatedByURL": "",
+  "DocsURL": "",
+  "MarketplaceURL": "",
+  "SupportURL": "",
+  "EngineVersion": "4.19.0",
+  "CanContainContent": true,
+  "IsBetaVersion": true,
+  "Installed": true,
+  "Modules": [
+    {
+      "Name": "UE4glTFImporter",
+      "Type": "Developer",
+      "LoadingPhase": "Default"
+    }
+  ]
+}

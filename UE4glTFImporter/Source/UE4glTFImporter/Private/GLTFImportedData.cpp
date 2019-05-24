@@ -5,7 +5,6 @@
 
 #include "GLTFImportedData.h"
 #include "UE4glTFImporter.h"
-#include "ImageLoader.h"
 
 #include <iostream>
 
@@ -41,7 +40,6 @@ static FString RemoveFileFormat(const std::string &Filename) {
   FString FullName = UTF8_TO_TCHAR(format.c_str());;
   FullName.RemoveAt(FullName.Len() - Name.size(), Name.size());
   FullName.RemoveAt(0, tokenIndex+1);
-  //FString FullName = UTF8_TO_TCHAR(Name.c_str());
   return FullName;
 }
 
@@ -131,10 +129,12 @@ GLTFImportedData::GLTFImportedData()
   , glTFName("")
   , glTFFlags(RF_NoFlags)
 {
+
 }
 
 GLTFImportedData::~GLTFImportedData()
 {
+  timer = UtilityTimer();
 }
 
 UStaticMesh* GLTFImportedData::ImportData(FString InFilename, UClass* InClass, UObject* InParent,
@@ -149,8 +149,14 @@ UStaticMesh* GLTFImportedData::ImportData(FString InFilename, UClass* InClass, U
 
   auto result = false;
 
+  timer.tick();
+  
   result = Loader.LoadASCIIFromFile(&Model, &error, &warn, filename);
   
+  auto elapsed = timer.tock();
+  
+  timer.CollectData("Load glTF from File", elapsed);
+
   if (!error.empty()) 
   {
 #ifdef SHOW_ERROR_LOGGER
@@ -212,13 +218,10 @@ UStaticMesh* GLTFImportedData::CreateStaticMesh(TSharedPtr<tinygltf::Model>& InM
 
   FRawMesh NewRawMesh;
 
+  timer.tick();
+
   for (auto& Scene : InModel->scenes){
     for (auto &SceneNodeID : Scene.nodes) {
-
-      //if (NewScene.nodes.size() < 0 || SceneNodeID >= NewScene.nodes.size()) {
-      //  checkSlow(0);
-      //  continue;
-      //}
 
       if (!GenerateRawMesh(InModel, InModel->nodes.at(SceneNodeID), NewRawMesh, FMatrix::Identity, InImporterOptions)) {
 #ifdef SHOW_ERROR_LOGGER
@@ -233,6 +236,11 @@ UStaticMesh* GLTFImportedData::CreateStaticMesh(TSharedPtr<tinygltf::Model>& InM
       return false;
     }
   }
+  auto elapsed = timer.tock();
+
+  timer.CollectData("Create all assets", elapsed);
+
+  timer.SaveStringTextToFile();
 
   if (UStaticMeshArray.Num() > 0) {
     return UStaticMeshArray[0];
@@ -259,7 +267,6 @@ bool GLTFImportedData::GenerateRawMesh(TSharedPtr<tinygltf::Model>& InModel,
   }
 
   if (InNode.translation.size() == 3) {
-    
     FVector Trans;
     Trans.X = InNode.translation.at(0);
     Trans.Y = InNode.translation.at(1);
@@ -269,7 +276,6 @@ bool GLTFImportedData::GenerateRawMesh(TSharedPtr<tinygltf::Model>& InModel,
   }
 
   if (InNode.rotation.size() == 4) {
-
     FQuat Rot;
     Rot.X = InNode.rotation.at(0);
     Rot.Y = InNode.rotation.at(1);
@@ -280,7 +286,6 @@ bool GLTFImportedData::GenerateRawMesh(TSharedPtr<tinygltf::Model>& InModel,
   }
 
   if (InNode.scale.size() == 3) {
-
     FVector Scale;
     Scale.X = InNode.scale.at(0);
     Scale.Y = InNode.scale.at(1);
@@ -552,19 +557,69 @@ bool GLTFImportedData::RetrieveDataFromglTF(TSharedPtr<tinygltf::Model>& InModel
 
   //// Animations
 
-  std::vector<tinygltf::Animation> &animation = InModel->animations;
+  std::vector <tinygltf::Animation> &animation = InModel->animations;
 
   std::vector <tinygltf::Accessor> &accesor = InModel->accessors;
 
 
   if (animation.size() > 0 && Animations.Num() != animation.size()) {
     
+
+    for (auto &skin : InModel->skins) {
+      SkinData skin_;
+
+      skin_.name = UTF8_TO_TCHAR(skin.name.c_str());
+      skin_.root_node = skin.skeleton;
+      
+      //FMemory::Memcpy((void*)skin_.jointHierachy.GetData(), (const void*)(skin.joints.data()), sizeof(skin.joints[0]) * skin.joints.size());
+
+      //skinning inverse bind matrices
+      tinygltf::Accessor &invMatrixAccesor = accesor[skin.inverseBindMatrices];
+      tinygltf::BufferView invMatrixbufferView = InModel->bufferViews[invMatrixAccesor.bufferView];
+      tinygltf::Buffer &invMatrixbuffer = InModel->buffers[invMatrixbufferView.buffer];
+
+      uint32 valueSize_ = accesorSizeValues(invMatrixAccesor);
+      uint32 byteStride_ = accesorByteStride(invMatrixAccesor);
+      
+      for (uint32 count = 0; count < invMatrixAccesor.count; count++) {
+        uint32 index = invMatrixAccesor.byteOffset + invMatrixbufferView.byteOffset + (count * byteStride_);
+
+        skin_.inverseBindMatrix = FMatrix(
+          FPlane(
+            *(float*)&invMatrixbuffer.data.at(index),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 2),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 3)
+          ),
+          FPlane(
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 4),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 5),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 6),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 7)
+          ),
+          FPlane(
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 8),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 9),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 10),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 11)
+          ),
+          FPlane(
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 12),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 13),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 14),
+            *(float*)&invMatrixbuffer.data.at(index + valueSize_ * 15)
+          )
+        );
+      }
+
+      Skins.Add(skin_);
+    }
+
     for (auto &anim : animation) {
       AnimationKeyFrame anim_;
-
+      
       for (auto &channel : anim.channels) {
 
-        
         TArray<FVector> translation;
         TArray<FQuat> rotation;
         TArray<FVector> scale;
@@ -577,7 +632,6 @@ bool GLTFImportedData::RetrieveDataFromglTF(TSharedPtr<tinygltf::Model>& InModel
 
         uint32 valueSize_ = accesorSizeValues(TimeAnimDataAccesor);
         uint32 byteStride_ = accesorByteStride(TimeAnimDataAccesor);
-
 
         for (uint32 count = 0; count < TimeAnimDataAccesor.count; count++) {
           uint32 index = TimeAnimDataAccesor.byteOffset + TimebufferView.byteOffset + (count * byteStride_);
@@ -632,14 +686,6 @@ bool GLTFImportedData::RetrieveDataFromglTF(TSharedPtr<tinygltf::Model>& InModel
           }
         }
 
-        //if (TMap<int32, AnimationFrameData> *anim_frame_data = anim_.anim_key_frame_data.Find(channel.target_node)) {
-          
-          //TArray<float> FrameTime;
-          //TMap<int32, AnimationFrameData> anim_frame_data;
-          //
-          //anim_.anim_key_frame_data.GenerateKeyArray(FrameTime);
-          //anim_.anim_key_frame_data.GenerateValueArray(anim_frame_data);
-
         for (int i = 0; i < timeArray.Num(); ++i) {
           if (TMap<int32, AnimationFrameData> *frameDataMap = anim_.anim_key_frame_data.Find(timeArray[i])) {
             if (AnimationFrameData *frameData = frameDataMap->Find(channel.target_node)) {
@@ -653,7 +699,9 @@ bool GLTFImportedData::RetrieveDataFromglTF(TSharedPtr<tinygltf::Model>& InModel
               if (scale.Num() > 0) {
                 frameData->scale = scale[i];
               }
-
+              if (!frameData->anim_interpolation.Compare("")) {
+                frameData->anim_interpolation = UTF8_TO_TCHAR(anim.samplers[channel.sampler].interpolation.c_str());
+              }
             } else {
               AnimationFrameData tempFrameData;
 
@@ -667,59 +715,14 @@ bool GLTFImportedData::RetrieveDataFromglTF(TSharedPtr<tinygltf::Model>& InModel
                 tempFrameData.scale = scale[i];
               }
 
+              tempFrameData.anim_interpolation = UTF8_TO_TCHAR(anim.samplers[channel.sampler].interpolation.c_str());
+
               frameDataMap->Add(channel.target_node, tempFrameData);
               frameDataMap->KeySort([](int32 A, int32 B) { return A < B; });
 
             }
-
-
           }
         }
-
-        //if (AnimationFrameData *frame_data = frame_data_map.Find(channel.target_node)) {
-        //
-        //  for (int32 index = 0; index < FrameTime.Num(); ++index) {
-        //    AnimationFrameData *frame_data = anim_frame_data->Find(FrameTime[index]);
-        //    if (translation.Num() > 0) {
-        //      frame_data->translation = translation[index];
-        //    }
-        //    if (rotation.Num() > 0) {
-        //      frame_data->rotation = rotation[index];
-        //    }
-        //    if (scale.Num() > 0) {
-        //      frame_data->scale = scale[index];
-        //    }
-        //  };
-        //
-        //  anim_frame_data->KeySort([](float A, float B) { return A < B; });
-        //  anim_.anim_key_frame_data_.Add(channel.target_node, *anim_frame_data);
-        //}
-
-        //} else {
-        //
-        //  anim_frame_data = new TMap<float, AnimationFrameData>();
-        //
-        //  TArray<float> FrameTime;
-        //  anim_frame_data->GenerateKeyArray(FrameTime);
-        //
-        //  for (int32 index = 0; index < FrameTime.Num(); ++index) {
-        //    AnimationFrameData frame_data;
-        //    if (translation.Num() > 0) {
-        //      frame_data.translation = translation[index];
-        //    }
-        //    if (rotation.Num() > 0) {
-        //      frame_data.rotation = rotation[index];
-        //    }
-        //    if (scale.Num() > 0) {
-        //      frame_data.scale = scale[index];
-        //    }
-        //
-        //    anim_frame_data->Add(FrameTime[index], frame_data);
-        //  }
-        //
-        //  anim_.anim_key_frame_data_.Add(channel.target_node, *anim_frame_data);
-        //  delete anim_frame_data;
-        //}
 
         anim_.anim_key_frame_data.KeySort([](float A, float B) { return A < B; });
 
@@ -979,13 +982,11 @@ bool GLTFImportedData::GenerateMeshFromglTF(TSharedPtr<tinygltf::Model>& InModel
   TArray<FColor> Colours;
   TArray<FVector2D> TextureCoords[MAX_MESH_TEXTURE_COORDS];
   TArray<uint32> TriangleIndices;
-  TArray<FVector4> OutJoints;
-  TArray<FVector4> OutWeights;
-
-  //tinygltf::Node Node = InModel->nodes.at(InNodeIndex);
+  TArray<FVector4> Joints;
+  TArray<FVector4> Weights;
 
   if (!RetrieveDataFromglTF(InModel, InPrimitive, TriangleIndices, Positions, Normals, 
-    Tangents, Colours, TextureCoords, OutJoints, OutWeights)) {
+    Tangents, Colours, TextureCoords, Joints, Weights)) {
 #ifdef SHOW_ERROR_LOGGER
     UE_LOG(ImporterLog, Error, TEXT("Failed To Retrieve glTF data"));
 #endif
@@ -1137,8 +1138,6 @@ bool GLTFImportedData::ProcessStaticMesh(UStaticMesh* InOutStaticMesh, FRawMesh&
   InOutStaticMesh->LightingGuid = FGuid::NewGuid();
   InOutStaticMesh->LightMapResolution = 64;
   InOutStaticMesh->LightMapCoordinateIndex = 1;
-  
-  //SourceModel.RawMeshBulkData->LoadRawMesh(InRawMesh);
 
   if (InRawMesh.IsValidOrFixable()) {
 
@@ -1198,9 +1197,8 @@ bool GLTFImportedData::CreatMeshFromRaw(FRawMesh& InRawMesh, std::string& InMesh
   FString SMPackageName = FPackageName::GetLongPackagePath(glTFParentClass->GetPathName()) / StaticMeshName;
   
   UPackage* AssetPackage = FindPackage(nullptr, *SMPackageName);
-  if (!AssetPackage)
-  {
-  /*UPackage* */AssetPackage = CreatePackage(nullptr, *SMPackageName);
+  if (!AssetPackage) {
+    AssetPackage = CreatePackage(nullptr, *SMPackageName);
   }
 
   if (!AssetPackage) return nullptr;
@@ -1211,13 +1209,9 @@ bool GLTFImportedData::CreatMeshFromRaw(FRawMesh& InRawMesh, std::string& InMesh
 
 
   ProcessStaticMesh(StaticMesh, InRawMesh, InImporterOptions);
-  //StaticMesh->SourceModels.AddDefaulted();
-  //FStaticMeshSourceModel& SourceModel = StaticMesh->SourceModels.Last();
+
   // Assign Material
-
   AssignMaterials(InRawMesh, StaticMesh, InImporterOptions);
-
- // bool bMeshUsesEmptyMaterial = MaterialIndexArray.Contains(INDEX_NONE);
 
   FStaticMeshSourceModel& SourceModel = StaticMesh->SourceModels[0];
   FMeshBuildSettings& Settings = SourceModel.BuildSettings;
@@ -1266,20 +1260,6 @@ bool GLTFImportedData::MergeRawMesh(FRawMesh& InRawMesh, FRawMesh& OutRawMesh)
 
   return true;
 
-}
-
-USkeletalMesh* GLTFImportedData::CreateSketalMesh(ImportSkeletalMeshArgs &InImportSkeletalMeshArgs)
-{
-  return nullptr;
-}
-
-USkeletalMesh* GLTFImportedData::ImportSkeletalMesh(USkeletalMesh* InMesh)
-{
-  USkeletalMesh* NewSkeletalMesh = NULL;
-  
-
-
-  return nullptr;
 }
 
 bool GLTFImportedData::IsMeshValidOrFixeable(FRawMesh& InRawMesh)
@@ -1344,14 +1324,12 @@ void GLTFImportedData::AssignMaterials(FRawMesh& InRawMesh, UStaticMesh* InMesh,
 
   MaterialIndexArray.Sort();
   InMesh->SectionInfoMap.Clear();
-  //int i = 0;        
-  //FMeshSectionInfoMap NewMap;
 
-  for (int32 MaterialIndex : MaterialIndexArray) {
+  for (int32 MaterialIndex : MaterialIndexArray) { 
 
     UMaterialInterface* NewMaterial = nullptr;
     int32 MeshSlot;
-    FName MatName;
+    FName MatName = TEXT("M_Default");
     if (ImporterOptions->bImportMaterial) {
       for (auto &mat : MaterialArray) {
         if (mat.id == MaterialIndex && !NewMaterial) {
@@ -1366,23 +1344,12 @@ void GLTFImportedData::AssignMaterials(FRawMesh& InRawMesh, UStaticMesh* InMesh,
       NewMaterial = DefaultMaterial;
       MeshSlot = InMesh->StaticMaterials.Add(NewMaterial);
     }
-
-    //FMeshSectionInfo Info = InMesh->SectionInfoMap.Get(0, i);
-    //int32 Index = InMesh->StaticMaterials.Add(NewMaterial);
-    //Info.MaterialIndex = Index;
-    //NewMap.Set(0, i, Info);
-
-
-    
+ 
     MaterialIndexToSlot.Add(MaterialIndex, MeshSlot);
     InMesh->StaticMaterials[MeshSlot].MaterialSlotName = MatName;
     InMesh->SectionInfoMap.Set(0, MeshSlot, FMeshSectionInfo(MeshSlot));
     
-    //i++;
   }
-
-  //InMesh->SectionInfoMap.Clear();
-  //InMesh->SectionInfoMap.CopyFrom(NewMap);
 
   for (int32& Index : InRawMesh.FaceMaterialIndices) {
     if (MaterialIndexToSlot.Contains(Index)) {
@@ -1432,7 +1399,7 @@ UMaterial* GLTFImportedData::CreateMaterial(const TWeakPtr<FImporterOptions>& In
   UPackage* MaterialPackage = FindPackage(nullptr, *MaterialPackageName);
   if (!MaterialPackage)
   {
-  /*UPackage* */MaterialPackage = CreatePackage(nullptr, *MaterialPackageName);
+    MaterialPackage = CreatePackage(nullptr, *MaterialPackageName);
   }
 
   if (!MaterialPackage) return nullptr;
@@ -1444,7 +1411,6 @@ UMaterial* GLTFImportedData::CreateMaterial(const TWeakPtr<FImporterOptions>& In
   if (!FinalMaterial) return nullptr;
 
   // Scalar Parameters
-  
   TMap<FName, FGuid> ScalarParameter_FNameToGuid;
 
   TArray<FName> ParameterNameArray;
@@ -1505,8 +1471,6 @@ UMaterial* GLTFImportedData::CreateMaterial(const TWeakPtr<FImporterOptions>& In
   }
 
   // Setting Material Parameters
-  // ------------------> here
-
   if (ScalarParameter_FNameToGuid.Contains(TEXT("alphaCutoff"))) {
     if (UMaterialExpressionScalarParameter* ScalarParameter = FindPropertyByGuid<UMaterialExpressionScalarParameter>(FinalMaterial, ScalarParameter_FNameToGuid[TEXT("alphaCutoff")])) {
       ScalarParameter->DefaultValue = InMaterial.Alpha.alphaCutoff;
@@ -1667,8 +1631,6 @@ bool GLTFImportedData::ConstructMaterialParameter(const TWeakPtr<FImporterOption
     InSampleParameter->Texture = Texture;
   }
 
-  //InSampleParameter->ConstCoordinate = 
-
   return (Texture != nullptr);
 }
 
@@ -1683,20 +1645,13 @@ UTexture* GLTFImportedData::CreateTexture(const TWeakPtr<FImporterOptions>& Ingl
 
   UPackage* TexturePackage = FindPackage(nullptr, *PackageName);
   if (!TexturePackage) {
-  /*UPackage* */TexturePackage = CreatePackage(nullptr, *PackageName);
+    TexturePackage = CreatePackage(nullptr, *PackageName);
   }
   if (!TexturePackage) return nullptr;
   TexturePackage->FullyLoad();
-  
-  //auto image = UImageLoader::LoadImageFromDiskAsync(TexturePackage, *(FilePath + InTexture.uri));
-  //
-  //FScriptDelegate Del;
-  //Del.BindUFunction(nullptr, "RetrieveImage");
-  //image->OnLoadCompleted().Add(Del);
+
 
   UTexture2D* FinalTexture = nullptr;
-  //TArray<FColor> SrcData;
-  //FinalTexture = FImageUtils::CreateTexture2D(InTexture.Info.width, InTexture.Info.height, SrcData, TexturePackage, *InTexture.name, glTFFlags);
   IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
 
   TSharedPtr<IImageWrapper> ImageWrappers[7] = {
@@ -1725,8 +1680,6 @@ UTexture* GLTFImportedData::CreateTexture(const TWeakPtr<FImporterOptions>& Ingl
     int32 BitDepth = ImageWrapper->GetBitDepth();
 
     ERGBFormat ImageFormat = ImageWrapper->GetFormat();
-
-    //TextureFormat = TSF_RGBA16;
 
     if (ImageFormat == ERGBFormat::Gray)
     {
@@ -1852,11 +1805,6 @@ void GLTFImportedData::CreateNewOwnTexture(std::vector<tinygltf::Sampler>& InSam
 
     TextureMap.Add(glTFTexture.name, glTFTexture);    
   }
-}
-
-void GLTFImportedData::RetrieveImage(UTexture2D* tex)
-{
-  tex_ = tex;
 }
 
 #undef LOCTEXT_NAMESPACE

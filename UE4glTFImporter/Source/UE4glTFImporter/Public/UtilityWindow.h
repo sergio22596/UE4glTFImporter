@@ -42,8 +42,6 @@ public:
 
 protected:
 
-
-  //typedef TSharedPtr<FString> FComboItemType;
   TSharedPtr<FString> CurrentItem;
   TSharedPtr<SComboBox<TSharedPtr<FString> > > SelectorComboBox;
 
@@ -70,10 +68,8 @@ protected:
   TSharedRef<SWidget> MakeWidgetForOption(TSharedPtr<FString>  InOption);
   void OnSelectionChanged(TSharedPtr<FString>  NewValue, ESelectInfo::Type);
   FText GetCurrentItemLabel() const;
-  void OnComboMenuOpening();
 
   TWeakPtr<struct FImporterOptions> SImporterOptions;
 	TWeakPtr<SWindow> WMainWindow;
-
 
 };

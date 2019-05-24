@@ -21,6 +21,8 @@
 #include "Runtime/Engine/Classes/Materials/MaterialExpressionScalarParameter.h"
 #include "Runtime/Engine/Classes/Materials/MaterialExpressionTextureSampleParameter.h"
 #include "Runtime/Engine/Classes/Materials/MaterialExpressionVectorParameter.h"
+#include "Runtime/Core/Public/HAL/PlatformFilemanager.h"
+#include "Runtime/Core/Public/Misc/FileHelper.h"
 
 #include "Engine/SkeletalMesh.h"
 #include "Editor/UnrealEd/Public/SkelImport.h"
@@ -29,6 +31,59 @@
 
 
 // TODO: Morph targets in FbxSceneImportFactory.cpp line 1994
+
+// retrieved from: https://forums.unrealengine.com/development-discussion/c-gameplay-programming/50376-measure-time-a-function-has-taken
+
+class UtilityTimer {
+public:
+
+  UtilityTimer() {
+    TickTime = 0;
+    TockTime = 0;
+    data = FString("");
+  }
+  ~UtilityTimer() {}
+
+  void tick() {
+    TickTime = FPlatformTime::Seconds();
+  }
+
+  double tock() {
+    TockTime = FPlatformTime::Seconds();
+    return TockTime - TickTime;
+  }
+
+  void CollectData(FString Data, double value) {
+    data += FString::SanitizeFloat(value) + '\t';
+  }
+
+  bool SaveStringTextToFile(
+    FString SaveText = "",
+    bool AllowOverWriting = true,
+    FString FileName = FString("test.txt"),
+    FString SaveDirectory = FString("C:/Users/b8021686/Desktop")
+  ) {
+
+    IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+
+    if (PlatformFile.CreateDirectoryTree(*SaveDirectory))
+    {
+      FString AbsoluteFilePath = SaveDirectory + "/" + FileName;
+
+      if (AllowOverWriting || !PlatformFile.FileExists(*AbsoluteFilePath))
+      {
+        FFileHelper::SaveStringToFile(data, *AbsoluteFilePath);
+      }
+    }
+    return false;
+  }
+
+private:
+  FString data;
+  double TickTime;
+  double TockTime;
+
+};
 
 struct glTFNode {
   FString name = "";
@@ -76,27 +131,25 @@ struct glTFAnimation {
 
 };
 
-struct AnimationFrameData {
+struct SkinData {
+  FString name = "";
+  int32 root_node = -1;
+  FMatrix inverseBindMatrix;
+  TArray<int32> jointHierachy;
+};
 
-  //FString name = "";
+struct AnimationFrameData {
   FVector translation = FVector::ZeroVector;
   FQuat rotation = FQuat::Identity;
   FVector scale = FVector::ZeroVector;
+  FString anim_interpolation = "";
 };
 
 struct AnimationKeyFrame {
-
-  //TArray<AnimationFrameData> anim_frame_data_;
-  //float time = 0.0f;
-
   FString name = "";
-  //TMap<int32, TMap<float, AnimationFrameData>> anim_key_frame_data_;
+  //float value is the key frame time
+  //int32 value is the target node of that frame data
   TMap<float, TMap<int32, AnimationFrameData>> anim_key_frame_data;
-
-};
-
-struct Animation {
-  TArray<AnimationKeyFrame> anim_key_frames_;
 };
 
 struct Material {
@@ -155,9 +208,6 @@ struct Texture {
 
     TextureFilter Filter = TF_Default;
     TextureAddress Wrapping[2] = { TA_Wrap, TA_Wrap };
-
-    //TexelsFormat::Enum format = TexelsFormat::None;
-    //TextureType::Enum type = TextureType::T2D;
 
   } Info;
 
@@ -247,14 +297,6 @@ public:
   bool MergeRawMesh(FRawMesh& InRawMesh, FRawMesh& OutRawMesh);
   /////////////////////
 
-  //// SKELETAL MESH
-
-  USkeletalMesh* CreateSketalMesh(ImportSkeletalMeshArgs &InImportSkeletalMeshArgs);
-
-  USkeletalMesh* ImportSkeletalMesh(USkeletalMesh* InMesh);
-
-  ////////////////////
-
   //// UTILITIES
   bool IsMeshValidOrFixeable(FRawMesh& InRawMesh);
 
@@ -288,10 +330,7 @@ public:
     std::vector<tinygltf::Texture>& InTexVec, int MaterialValue
   );
   //////////////////
-  UFUNCTION()
-  void RetrieveImage(UTexture2D* tex);
 
-  UTexture2D* tex_;
 protected:
 
   UClass* glTFClass;
@@ -309,6 +348,10 @@ protected:
   TArray<UStaticMesh*> UStaticMeshArray;
 
   TArray<AnimationKeyFrame> Animations;
+  TArray<SkinData> Skins;
+
+  UtilityTimer timer;
+
 };
 
 #endif

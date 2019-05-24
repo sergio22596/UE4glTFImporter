@@ -21,7 +21,7 @@ struct UE4GLTFIMPORTER_API FImporterOptions
   // Import options
   UPROPERTY(EditAnywhere, Category = UE4glTFImporter)
   bool bImportAsMap;
-  // Do Enum with these{
+
   UPROPERTY(EditAnywhere, Category = UE4glTFImporter)
   bool bImportMeshesTogether;
 
@@ -30,7 +30,7 @@ struct UE4GLTFIMPORTER_API FImporterOptions
 
   UPROPERTY(EditAnywhere, Category = UE4glTFImporter)
   bool bImportMeshesSeparate_and_Together;
-  // }
+
   UPROPERTY(EditAnywhere, Category = UE4glTFImporter)
   bool bImportWithSkeletalMesh;
 

@@ -368,10 +368,6 @@ void SUtilityWindow::Construct(const FArguments& InArgs)
     ]
   ];
 
-
-  //SelectorComboBox->RefreshOptions();
-  //SelectorComboBox->SetSelectedItem(CurrentItem);
-
 }
 
 bool SUtilityWindow::Open(const FString& InFilePathInOS, const FString& InFilePathInEngine)
@@ -454,12 +450,13 @@ FReply SUtilityWindow::OnImport()
 
 FReply SUtilityWindow::OnCancel()
 {
-  SImporterOptions.Reset();
 
   if (WMainWindow.IsValid())
   {
     WMainWindow.Pin()->RequestDestroyWindow();
   }
+  SImporterOptions.Pin()->bAcceptedImport = false;
+
 #ifdef SHOW_INFO_LOGGER
   UE_LOG(ImporterLog, Log, TEXT("Import cancelled"));
 #endif
@@ -554,8 +551,7 @@ void SUtilityWindow::HandleMaterialPBR(ECheckBoxState InState)
 #endif
 }
 
-FText SUtilityWindow::GetCurrentItemLabel() const
-{
+FText SUtilityWindow::GetCurrentItemLabel() const {
   if (CurrentItem.IsValid())
   {
     return FText::FromString(*CurrentItem);
@@ -564,18 +560,11 @@ FText SUtilityWindow::GetCurrentItemLabel() const
   return LOCTEXT("InvalidComboEntryText", "<<Invalid option>>");
 }
 
-void SUtilityWindow::OnComboMenuOpening()
-{
-
-}
-
 void SUtilityWindow::OnSelectionChanged(TSharedPtr<FString> NewValue, ESelectInfo::Type)
 {
   if (NewValue.IsValid()) {
     CurrentItem = NewValue;
   }
-  //SelectorComboBox->RefreshOptions();
-  //SelectorComboBox->SetSelectedItem(CurrentItem);
 
   if (CurrentItem.IsValid()) {
     if (!CurrentItem->Compare("Import the mesh together")) {

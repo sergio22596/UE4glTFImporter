@@ -1,7 +1,10 @@
 # sabUE4glTFloader
 
-Ue4 plugin for loading a complete glTF v2.0 scene
+Wotk in progress Ue4 plugin for loading a complete glTF v2.0 scene
 
+## Status
+
+v1.0 imports multiple meshes with materials
 
 ## License
 
